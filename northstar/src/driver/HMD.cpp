@@ -198,25 +198,59 @@ void northstar::driver::CHMD::GetProjectionRaw(vr::EVREye eEye, float* pfLeft, f
     *pfBottom = static_cast<float>(v4dEyeProjectionLRTB.w());	
 }
 
-vr::DistortionCoordinates_t northstar::driver::CHMD::ComputeDistortion(vr::EVREye eEye, float fU, float fV) {
-    vr::DistortionCoordinates_t coordinates;
-    if (m_sConfiguration.bUseFakeWarp) {
-        coordinates.rfRed[0] = fU;
-        coordinates.rfRed[1] = fV;
-        coordinates.rfGreen[0] = fU;
-        coordinates.rfGreen[1] = fV;
-        coordinates.rfBlue[0] = fU;
-        coordinates.rfBlue[1] = fV;
-        return coordinates;
-    }
+float left_uv_to_rect_x[] = {-0.03025273194246765, -10.332571869617775, 22.920310193688138, -16.245127334079367, -6.4111247104759, 74.87936605663893, -152.32992421214445, 100.07790752961323, 18.767075862784353, -159.6456296535261, 314.0055045039939, -199.7048205422684, -12.222839842933524, 103.4463706973384, -203.21519558449378, 129.17007049482532};
+float left_uv_to_rect_y[] = {0.029115293434358536, -5.218962153638652, 14.777386870023445, -8.394642473641362, -9.493554619201916, 67.53183793641266, -140.95499249383968, 87.00082242941332, 23.127112207617238, -153.11976700720265, 309.5947997732527, -191.62131264722873, -17.1336637578178, 107.63373033396942, -211.82844939981243, 131.12335568460153};
+float right_uv_to_rect_x[] = {0.15757501376143696, 8.707879246106318, -19.470374384585757, 13.57135190184141, 4.528897834236504, -62.08850498066993, 126.63715545848075, -82.01165869765885, -13.797466335165645, 128.79708468105366, -252.8309813610479, 158.34515911279317, 7.982020511442282, -79.08045643764393, 155.7654807989786, -97.92641609725516};
+float right_uv_to_rect_y[] =  {-0.04966280748846229, 6.194050807470437, -16.74078406698002, 9.942203858070798, 10.912716733843816, -73.7042758899008, 147.43414219879185, -89.54141901996026, -23.808111295373465, 148.6614948167901, -287.88954644345256, 174.96685793293122, 16.61099875397732, -96.93212717990885, 181.99035507847407, -110.80255352859031};
 
-    auto v2dUVDistortionWarp = m_pOptics->EyeUVToScreenUV(eEye, m_pVectorFactory->V2DFromArray({ fU, fV }));
-    coordinates.rfRed[0] = static_cast<float>(v2dUVDistortionWarp.x());
-    coordinates.rfRed[1] = static_cast<float>(v2dUVDistortionWarp.y());
-    coordinates.rfGreen[0] = static_cast<float>(v2dUVDistortionWarp.x());
-    coordinates.rfGreen[1] = static_cast<float>(v2dUVDistortionWarp.y());
-    coordinates.rfBlue[0] = static_cast<float>(v2dUVDistortionWarp.x());
-    coordinates.rfBlue[1] = static_cast<float>(v2dUVDistortionWarp.y());
+static float
+ns_v2_polyval2d(float X, float Y, float C[16])
+{
+	float X2 = X * X;
+	float X3 = X2 * X;
+	float Y2 = Y * Y;
+	float Y3 = Y2 * Y;
+	return (
+	    ((C[0]) + (C[1] * Y) + (C[2] * Y2) + (C[3] * Y3)) +
+	    ((C[4] * X) + (C[5] * X * Y) + (C[6] * X * Y2) + (C[7] * X * Y3)) +
+	    ((C[8] * X2) + (C[9] * X2 * Y) + (C[10] * X2 * Y2) +
+	     (C[11] * X2 * Y3)) +
+	    ((C[12] * X3) + (C[13] * X3 * Y) + (C[14] * X3 * Y2) +
+	     (C[15] * X3 * Y3)));
+}
+
+vr::DistortionCoordinates_t northstar::driver::CHMD::ComputeDistortion(vr::EVREye eEye, float fU, float fV) {
+    //todo: make the FoV correct...
+    
+    fU = 1.0f-fU;
+    fV=1.0f-fV;
+    float x_ray=0;
+    float y_ray=0;
+    if (eEye==0){
+        // Blindly assuming that this is the left eye. Probably wrong.
+        x_ray = ns_v2_polyval2d(fU, fV, left_uv_to_rect_x);
+        y_ray = ns_v2_polyval2d(fU, fV, left_uv_to_rect_y);
+    } else {
+        x_ray = ns_v2_polyval2d(fU, fV, right_uv_to_rect_x);
+        y_ray = ns_v2_polyval2d(fU, fV, right_uv_to_rect_y);
+    }
+    float left_ray_bound;
+    float right_ray_bound;
+    float up_ray_bound;
+    float down_ray_bound;
+    
+    northstar::driver::CHMD::GetProjectionRaw(eEye, &left_ray_bound, &right_ray_bound, &up_ray_bound, &down_ray_bound); // Will result in violently weird FoV but should work for now.
+	
+    float u_eye = (x_ray + right_ray_bound) / (right_ray_bound - left_ray_bound);
+	float v_eye = (y_ray + up_ray_bound) / (up_ray_bound - down_ray_bound);
+
+    vr::DistortionCoordinates_t coordinates;
+    coordinates.rfRed[0] = u_eye;
+    coordinates.rfRed[1] = v_eye;
+    coordinates.rfGreen[0] = u_eye;
+    coordinates.rfGreen[1] = v_eye;
+    coordinates.rfBlue[0] = u_eye;
+    coordinates.rfBlue[1] = v_eye;
     return coordinates;
 }
 
